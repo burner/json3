@@ -401,9 +401,9 @@ struct JsonParser {
 		enforce(this.input[0] == '"', "Expected '\"' got '" ~ this.input[0]
 				~ "'");
 		this.input = this.input[1 .. $];
+		string copy = this.input;
 		size_t idx = 1;
-		while(idx < this.input.length)
-		{
+		while(idx < this.input.length) {
 			if(idx > 1 && this.input[idx] == '"' && this.input[idx - 1] != '\\') {
 				break;
 			}
@@ -413,8 +413,8 @@ struct JsonParser {
 			++idx;
 		}
 
-		string ret = this.input[0 .. idx];
-		this.input = this.input[idx + 1 .. $];
+		string ret = copy[0 .. idx];
+		this.input = this.input[idx+1 .. $];
 		this.column += idx + 1;
 		return ret;
 	}
