@@ -2,6 +2,7 @@ module textbasedfileformats.json;
 
 import std.algorithm.comparison : among, min;
 import std.algorithm.searching : findAmong, startsWith;
+import std.algorithm.iteration : filter;
 import std.array : appender, empty;
 import std.ascii : isDigit;
 import std.bigint;
@@ -536,4 +537,14 @@ private string numberToString(Payload p) @safe pure{
     test("123.456e-01 ", 12.3456, " ");
     test("0.123e-12", 0.123e-12, "");
     test("0.123e-12 ", 0.123e-12, " ");
+}
+
+@trusted unittest {
+	import std.file;
+	foreach(ma; dirEntries("JSONTestSuite/test_parsing/", SpanMode.depth)
+			.filter!(n => n.name.startsWith("JSONTestSuite/test_parsing/y_"))) 
+	{
+		writeln(ma.name);
+		auto p = parseJson(readText(ma.name));
+	}
 }
