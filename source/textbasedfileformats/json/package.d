@@ -7,9 +7,10 @@ import std.array : appender, empty;
 import std.ascii : isDigit;
 import std.bigint;
 import std.conv : to;
-import std.exception : enforce;
+import std.exception : enforce, assertThrown;
 import std.format : format;
 import std.stdio;
+import std.file;
 import std.string : representation;
 import std.sumtype;
 import std.math : isClose, isNaN, isInfinity, pow;
@@ -84,7 +85,9 @@ unittest {
 
 Payload parseJson(string input) {
 	JsonParser jp = JsonParser(input);
-	return jp.parse();
+	Payload ret = jp.parse();
+	enforce(jp.input.empty, "Input not completly consumed");
+	return ret;
 }
 
 struct JsonParser {
@@ -121,7 +124,7 @@ struct JsonParser {
 	}
 
 	Payload parseElement() {
-		return this.parseValue;
+		return this.parseValue();
 	}
 
 	Payload parseValue() {
@@ -152,9 +155,10 @@ struct JsonParser {
 			this.column += 4;
 			this.input = this.input[4 .. $];
 			return Payload(false);
-		} else if(this.input[0] >= '0' || this.input[0] <= '9'
-				|| this.input[0] == '-' 
-				|| this.input[0] == '+')
+		} else if(!this.input.empty
+			&& ((this.input[0] >= '0' && this.input[0] <= '9')
+				|| this.input[0] == '-'
+				|| this.input[0] == '+'))
 		{
 			return this.parseNumber();
 		}
@@ -190,43 +194,39 @@ struct JsonParser {
         enforce(!input.empty, "Input empty before integer parsing started");
         if (input[0] == 'I') {
 			enum inf = "Infinity";
-            if (input.matches!(inf)())
-            {
+            if (input.matches!(inf)()) {
                 this.column += inf.length;
 				this.input = this.input[inf.length .. $];
                 return Payload(neg ? -double.infinity : double.infinity);
             }
             enforce(false, "Invalid number, expected 'Infinity'");
         }
-        if (!neg && input[0] == 'N')
-        {
+        if (!neg && input[0] == 'N') {
 			enum nan = "NaN";
-            if (input.matches!("NaN")())
-            {
+            if (input.matches!("NaN")()) {
                 this.column += nan.length;
 				this.input = this.input[nan.length .. $];
 				return Payload(double.nan);
             }
             enforce(false, "Invalid number, expected 'NaN'");
         }
-        
-        // integer part of the number
-		enforce(!input.empty || input[0].isDigit(), "Invalid number, expected digit '"
-				~ input[0 .. min(10, input.length)] ~ "'");
 
-        if (input[0] == '0')
-        {
+        // integer part of the number
+		enforce(!this.input.empty && this.input[0].isDigit(), "Invalid number, expected digit '"
+				~ this.input[0 .. min(10, this.input.length)] ~ "'");
+
+        if(this.input[0] == '0') {
 			this.input = this.input[1 .. $];
 			this.column++;
-            if (input.empty) // return 0
-            {
+            if (input.empty) { // return 0
 				long r = 0;
                 return Payload(r);
             }
 
-			//enforce(!input[0].isDigit() || isTokenStop(input[0]), 
-			//	"Invalid number, 0 must not be followed by another digit '"
-			//	~ input[0 .. min(10, input.length)] ~ "'");
+			enforce(this.input.empty || !this.input[0].isDigit()
+					|| isTokenStop(this.input[0])
+				, "Invalid number, 0 must not be followed by another digit '"
+				~ input[0 .. min(10, input.length)] ~ "'");
         }
 
         while (!input.empty && isDigit(input[0])) {
@@ -265,11 +265,15 @@ struct JsonParser {
 				this.input = this.input[1 .. $];
 				this.column++;
 
-                if (input.empty || isTokenStop(input[0])) {
-					BigInt integralPart = collector / pow(10, -exponent);
-					integralPart = integralPart * pow(10, -exponent);
+                if(input.empty || isTokenStop(input[0])) {
+					long expPow = pow(10, -exponent);
+					if(expPow == 0 || expPow == -0) {
+						return Payload(0.0);
+					}
+					BigInt integralPart = collector / expPow;
+					integralPart = integralPart * expPow;
 					BigInt floatPart = collector - integralPart;
-					integralPart = integralPart / pow(10, -exponent);
+					integralPart = integralPart / expPow;
 					string d = integralPart.toDecimalString() ~ "." ~
 						floatPart.toDecimalString();
 					return Payload(d.to!double());
@@ -303,7 +307,7 @@ struct JsonParser {
 				}
             }
 
-			enforce(!input.empty || !input[0].isDigit, "Missing exponent");
+			enforce(!input.empty && input[0].isDigit, "Missing exponent");
 
             uint exp = 0;
             while (true)
@@ -343,7 +347,8 @@ struct JsonParser {
 		while(!this.input.empty && this.input[0] != '}') {
 			if(notFirst) {
 				this.stripWhitespace();
-				enforce(this.input[0] == ',', "Expected ',' got '" ~ this.input[0]
+				enforce(!this.input.empty && this.input[0] == ','
+						, "Expected ',' got '" ~ (!this.input.empty ? to!string(this.input[0]) : "")
 						~ "'");
 				this.input = this.input[1 .. $];
 				this.column++;
@@ -351,7 +356,8 @@ struct JsonParser {
 			this.stripWhitespace();
 			string key = this.parseString();
 			this.stripWhitespace();
-			enforce(this.input[0] == ':', "Expected ':' got '" ~ this.input[0]
+			enforce(!this.input.empty && this.input[0] == ':'
+					, "Expected ':' got '" ~ (!this.input.empty ? to!string(this.input[0]) : "")
 					~ "'");
 			this.input = this.input[1 .. $];
 			this.column++;
@@ -364,7 +370,8 @@ struct JsonParser {
 			this.stripWhitespace();
 		}
 		this.stripWhitespace();
-		enforce(this.input[0] == '}', "Expected '}' got '" ~ this.input[0]
+		enforce(!this.input.empty && this.input[0] == '}', "Expected '}' got '"
+				~ (this.input.empty ? "" : to!string(this.input[0]))
 				~ "'");
 		this.input = this.input[1 .. $];
 		this.column++;
@@ -377,11 +384,11 @@ struct JsonParser {
 		this.stripWhitespace();
 		while(!this.input.empty && this.input[0] != ']') {
 			if(notFirst) {
-				enforce(this.input[0] == ',', "Expected ',' got '" ~ this.input[0]
+				enforce(!this.input.empty && this.input[0] == ',', "Expected ',' got '"
+						~ (this.input.empty ? "" : to!string(this.input[0]))
 						~ "'");
 				this.input = this.input[1 .. $];
 				this.column++;
-				this.stripWhitespace();
 			}
 			this.stripWhitespace();
 			elements ~= this.parseElement();
@@ -389,7 +396,8 @@ struct JsonParser {
 			notFirst = true;
 		}
 		this.stripWhitespace();
-		enforce(this.input[0] == ']', "Expected ']' got '" ~ this.input[0]
+		enforce(!this.input.empty && this.input[0] == ']'
+				, "Expected ']' got '" ~ (!this.input.empty ? to!string(this.input[0]) : "")
 				~ "'");
 		this.input = this.input[1 .. $];
 		this.column++;
@@ -398,7 +406,8 @@ struct JsonParser {
 	}
 
 	string parseString() {
-		enforce(this.input[0] == '"', "Expected '\"' got '" ~ this.input[0]
+		enforce(!this.input.empty && this.input[0] == '"', "Expected '\"' got '"
+				~ (this.input.empty ? "" : to!string(this.input[0]))
 				~ "'");
 		this.input = this.input[1 .. $];
 		size_t idx = 0;
@@ -413,6 +422,7 @@ struct JsonParser {
 		}
 
 		string ret = this.input[0 .. idx];
+		enforce(idx + 1 <= this.input.length, "string out of range");
 		this.input = this.input[idx+1 .. $];
 		this.column += idx + 1;
 		return ret;
@@ -445,7 +455,7 @@ unittest {
 }
 
 unittest {
-	string tp = `{ "hello": [ null , 
+	string tp = `{ "hello": [ null ,
 		true, false
 	]}`;
 	auto p = parseJson(tp);
@@ -492,7 +502,7 @@ private string numberToString(Payload p) @safe pure{
 				, (double a) => rslt.match!
 				  	( (long b) => false
 					, (double b) {
-						return isNaN(a) 
+						return isNaN(a)
 							? isNaN(a) == isNaN(b)
 							: isInfinity(a)
 								? isInfinity(a) == isInfinity(b)
@@ -544,11 +554,29 @@ private string numberToString(Payload p) @safe pure{
 }
 
 @trusted unittest {
-	import std.file;
 	foreach(ma; dirEntries("JSONTestSuite/test_parsing/", SpanMode.depth)
-			.filter!(n => n.name.startsWith("JSONTestSuite/test_parsing/y_"))) 
+			.filter!(n => n.name.startsWith("JSONTestSuite/test_parsing/y_")))
 	{
-		writeln(ma.name);
-		auto p = parseJson(readText(ma.name));
+		try {
+			auto p = parseJson(readText(ma.name));
+		} catch(Exception e) {
+			writeln(ma.name);
+		}
+	}
+}
+
+@trusted unittest {
+	foreach(ma; dirEntries("JSONTestSuite/test_parsing/", SpanMode.depth)
+			.filter!(n => n.name.startsWith("JSONTestSuite/test_parsing/n_")))
+	{
+		bool okay;
+		try {
+			auto r = parseJson(readText(ma.name));
+		} catch(Exception e) {
+			okay = true;
+		}
+		if(!okay) {
+			writeln(ma.name);
+		}
 	}
 }
