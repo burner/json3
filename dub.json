@@ -1,0 +1,9 @@
+{
+	"authors": [
+		"burner"
+	],
+	"copyright": "Copyright © 2022, burner",
+	"description": "A minimal D application.",
+	"license": "proprietary",
+	"name": "textbasedfileformats"
+}

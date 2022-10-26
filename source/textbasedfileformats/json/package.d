@@ -366,6 +366,7 @@ struct JsonParser {
 		this.stripWhitespace();
 		enforce(this.input[0] == '}', "Expected '}' got '" ~ this.input[0]
 				~ "'");
+		this.input = this.input[1 .. $];
 		this.column++;
 		return Payload(elements);
 	}
@@ -376,7 +377,6 @@ struct JsonParser {
 		this.stripWhitespace();
 		while(!this.input.empty && this.input[0] != ']') {
 			if(notFirst) {
-				this.stripWhitespace();
 				enforce(this.input[0] == ',', "Expected ',' got '" ~ this.input[0]
 						~ "'");
 				this.input = this.input[1 .. $];
@@ -391,8 +391,8 @@ struct JsonParser {
 		this.stripWhitespace();
 		enforce(this.input[0] == ']', "Expected ']' got '" ~ this.input[0]
 				~ "'");
-		this.column++;
 		this.input = this.input[1 .. $];
+		this.column++;
 		this.stripWhitespace();
 		return Payload(elements);
 	}
@@ -401,19 +401,18 @@ struct JsonParser {
 		enforce(this.input[0] == '"', "Expected '\"' got '" ~ this.input[0]
 				~ "'");
 		this.input = this.input[1 .. $];
-		string copy = this.input;
-		size_t idx = 1;
+		size_t idx = 0;
 		while(idx < this.input.length) {
-			if(idx > 1 && this.input[idx] == '"' && this.input[idx - 1] != '\\') {
+			if(idx > 0 && this.input[idx] == '"' && this.input[idx - 1] != '\\') {
 				break;
 			}
-			if(idx == 1 && this.input[idx] == '"') {
+			if(idx == 0 && this.input[idx] == '"') {
 				break;
 			}
 			++idx;
 		}
 
-		string ret = copy[0 .. idx];
+		string ret = this.input[0 .. idx];
 		this.input = this.input[idx+1 .. $];
 		this.column += idx + 1;
 		return ret;
@@ -449,6 +448,11 @@ unittest {
 	string tp = `{ "hello": [ null , 
 		true, false
 	]}`;
+	auto p = parseJson(tp);
+}
+
+unittest {
+	string tp = `{"x":[{"id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}], "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}`;
 	auto p = parseJson(tp);
 }
 
